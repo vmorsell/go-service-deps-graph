@@ -9,31 +9,13 @@ import (
 	"strings"
 )
 
-// Nodes represents services.
-type Node struct {
-	Name  string
-	Edges []Edge
+// Service struct.
+type Service struct {
+	Name string
+	Deps []string
 }
-
-// Edges represents dependencies between services.
-type Edge struct {
-	From      *Node
-	To        *Node
-	Direction Direction
-
-	// Todo: calculate weight of edges
-}
-
-type Direction int
-
-const (
-	In Direction = iota
-	Out
-)
 
 func main() {
-	nodes := make(map[string]*Node)
-
 	if len(os.Args) < 2 {
 		log.Fatalf("usage: go run main.go /path/to/repo/root")
 	}
@@ -44,6 +26,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("read dir: %v", err)
 	}
+
+	var services []Service
 
 	for _, repo := range repoDirs {
 		if !repo.IsDir() {
@@ -60,17 +44,13 @@ func main() {
 
 		log.Printf("reading %s", repo.Name())
 
-		to, ok := nodes[repo.Name()]
-		if !ok {
-			to = &Node{
-				Name: repo.Name(),
-			}
-			nodes[to.Name] = to
-		}
-
 		f, err := os.ReadFile(fmt.Sprintf("%s/%s/go.mod", path, repo.Name()))
 		if err != nil {
 			log.Fatalf("read modfile: %v", err)
+		}
+
+		svc := Service{
+			Name: repo.Name(),
 		}
 
 		re := regexp.MustCompile(`github\.com\/northvolt\/(go\-service\-[a-z\-]*) v[0-9\.]*\n`)
@@ -79,49 +59,17 @@ func main() {
 			if len(l) != 2 {
 				log.Fatalf("unexpected size %d of regexp match for line %s", len(l), l)
 			}
-			fromName := string(l[1])
-
-			from, ok := nodes[fromName]
-			if !ok {
-				from = &Node{
-					Name: fromName,
-				}
-				nodes[from.Name] = from
-			}
-
-			nodes[from.Name].Edges = append(nodes[from.Name].Edges, Edge{
-				From:      from,
-				To:        to,
-				Direction: Out,
-			})
-			nodes[to.Name].Edges = append(nodes[to.Name].Edges, Edge{
-				From:      from,
-				To:        to,
-				Direction: In,
-			})
+			dep := string(l[1])
+			svc.Deps = append(svc.Deps, dep)
 		}
+
+		services = append(services, svc)
 	}
 
-	for _, n := range nodes {
-		var in []Edge
-		var out []Edge
-
-		for _, e := range n.Edges {
-			switch e.Direction {
-			case In:
-				in = append(in, e)
-			case Out:
-				out = append(out, e)
-			}
-		}
-
-		log.Printf("%s (%d deps / used in %d)", n.Name, len(in), len(out))
-
-		for _, e := range in {
-			log.Printf(" - %s <- %s", e.To.Name, e.From.Name)
-		}
-		for _, e := range out {
-			log.Printf(" - %s -> %s", e.From.Name, e.To.Name)
+	for _, s := range services {
+		log.Printf("%s (%d deps)", s.Name, len(s.Deps))
+		for _, d := range s.Deps {
+			log.Printf(" - %s -> %s", s.Name, d)
 		}
 	}
 }
