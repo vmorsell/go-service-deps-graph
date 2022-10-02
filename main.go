@@ -38,7 +38,7 @@ func main() {
 			continue
 		}
 
-		if repo.Name() == "go-service" || repo.Name() == "go-service-attachment" {
+		if repo.Name() == "go-service" {
 			continue
 		}
 
