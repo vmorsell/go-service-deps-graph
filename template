@@ -60,7 +60,7 @@
           .each(d => (d.angle = (d.startAngle + d.endAngle) / 2))
           .attr("dy", "0.35em")
           .attr("transform", d => `
-            rotate(${(d.angle * 100 / Math.PI - 90)})
+            rotate(${(d.angle * 180 / Math.PI - 90)})
             translate(${outerRadius + 5})
             ${d.angle > Math.PI ? "rotate(180)" : ""}
           `)
