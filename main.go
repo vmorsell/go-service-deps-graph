@@ -118,7 +118,7 @@ func d3Dataset(services []Service) D3Dataset {
 }
 
 func writeGraph(dataset D3Dataset) error {
-	tpl, err := ioutil.ReadFile("template")
+	tpl, err := ioutil.ReadFile("template.html.gotpl")
 	if err != nil {
 		return fmt.Errorf("read template file: %w", err)
 	}
