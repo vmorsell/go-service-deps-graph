@@ -1,7 +1,7 @@
 package main
 
 import (
-	"bytes"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -9,13 +9,49 @@ import (
 	"os"
 	"regexp"
 	"strings"
-	"text/template"
 )
 
-// Service struct.
-type Service struct {
-	Name string
-	Deps []string
+type Graph struct {
+	Nodes []Node `json:"nodes"`
+	Links []Link `json:"links"`
+
+	nodes map[string]struct{}
+	links map[string]string
+}
+
+func NewGraph() *Graph {
+	return &Graph{
+		nodes: make(map[string]struct{}),
+		links: make(map[string]string),
+	}
+}
+
+func (g *Graph) AddNode(node Node) {
+	if _, ok := g.nodes[node.ID]; ok {
+		return
+	}
+	g.Nodes = append(g.Nodes, node)
+	g.nodes[node.ID] = struct{}{}
+}
+
+func (g *Graph) AddLink(link Link) {
+	if target, ok := g.links[link.Source]; ok {
+		if target == link.Target {
+			return
+		}
+	}
+	g.Links = append(g.Links, link)
+	g.links[link.Source] = link.Target
+}
+
+type Node struct {
+	ID string `json:"id"`
+}
+
+type Link struct {
+	Source string `json:"source"`
+	Target string `json:"target"`
+	Value  int    `json:"value"`
 }
 
 func main() {
@@ -25,34 +61,35 @@ func main() {
 
 	path := os.Args[1]
 
-	repoDirs, err := ioutil.ReadDir(path)
+	dirs, err := ioutil.ReadDir(path)
 	if err != nil {
 		log.Fatalf("read dir: %v", err)
 	}
 
-	var services []Service
+	graph := NewGraph()
 
-	for _, repo := range repoDirs {
-		if !repo.IsDir() {
+	for _, d := range dirs {
+		if !d.IsDir() {
 			continue
 		}
 
-		if !strings.HasPrefix(repo.Name(), "go-service") {
+		if !strings.HasPrefix(d.Name(), "go-service") {
 			continue
 		}
 
-		if repo.Name() == "go-service" {
+		if d.Name() == "go-service" {
 			continue
 		}
 
-		f, err := os.ReadFile(fmt.Sprintf("%s/%s/go.mod", path, repo.Name()))
+		f, err := os.ReadFile(fmt.Sprintf("%s/%s/go.mod", path, d.Name()))
 		if err != nil {
 			log.Fatalf("read modfile: %v", err)
 		}
 
-		svc := Service{
-			Name: repo.Name(),
-		}
+		graph.AddNode(Node{
+			ID: d.Name(),
+		})
+		log.Printf("discovering service %s", d.Name())
 
 		re := regexp.MustCompile(`github\.com\/northvolt\/(go\-service\-[a-z\-]*) v[0-9\.]*\n`)
 		lines := re.FindAllSubmatch(f, -1)
@@ -61,23 +98,35 @@ func main() {
 				log.Fatalf("unexpected size %d of regexp match for line %s", len(l), l)
 			}
 			dep := string(l[1])
-			svc.Deps = append(svc.Deps, dep)
+			graph.AddNode(Node{
+				ID: dep,
+			})
+			graph.AddLink(Link{
+				Source: d.Name(),
+				Target: dep,
+				Value:  1,
+			})
+			log.Printf(" - %s", dep)
 		}
-
-		log.Printf("discovered service: %s (%d deps)", svc.Name, len(svc.Deps))
-		for i, d := range svc.Deps {
-			log.Printf("  %d: %s", i, d)
-		}
-		services = append(services, svc)
 	}
 
-	dataset := d3Dataset(services)
-	if err := writeGraph(dataset); err != nil {
-		log.Fatalf("write graph: %v", err)
+	jsonGraph, err := json.Marshal(graph)
+	if err != nil {
+		log.Fatalf("marshal: %v", err)
+	}
+
+	file, err := os.Create("graph.json")
+	if err != nil {
+		log.Fatalf("create: %v", err)
+	}
+
+	_, err = file.Write(jsonGraph)
+	if err != nil {
+		log.Fatalf("write: %v", err)
 	}
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "graph.html")
+		http.ServeFile(w, r, "index.html")
 	})
 
 	const port = 5555
@@ -85,82 +134,4 @@ func main() {
 	if err := http.ListenAndServe(fmt.Sprintf(":%d", port), nil); err != nil {
 		log.Fatalf("listen and serve: %v", err)
 	}
-}
-
-type D3Dataset struct {
-	Nodes []string
-	Edges [][]int
-}
-
-func d3Dataset(services []Service) D3Dataset {
-	nodes := make([]string, 0, len(services))
-	edges := make([][]int, len(services))
-	for i, s := range services {
-		nodes = append(nodes, s.Name)
-		edges[i] = make([]int, len(services))
-
-		for j, ss := range services {
-			if i == j {
-				continue
-			}
-
-			for _, d := range s.Deps {
-				if d == ss.Name {
-					edges[i][j] = 1
-				}
-			}
-		}
-	}
-	return D3Dataset{
-		Nodes: nodes,
-		Edges: edges,
-	}
-}
-
-func writeGraph(dataset D3Dataset) error {
-	tpl, err := ioutil.ReadFile("template.html.gotpl")
-	if err != nil {
-		return fmt.Errorf("read template file: %w", err)
-	}
-
-	t := template.New("tpl")
-
-	t.Funcs(map[string]interface{}{
-		"jsStringArray": func(in []string) string {
-			return fmt.Sprintf("\"%s\"", strings.Join(in, "\",\""))
-		},
-		"jsIntMatrix": func(in [][]int) string {
-			b := bytes.NewBuffer(nil)
-			for i, r := range in {
-				fmt.Fprint(b, "[")
-				for j, c := range r {
-					fmt.Fprint(b, c)
-					if j < len(r)-1 {
-						fmt.Fprint(b, ",")
-					}
-				}
-				fmt.Fprint(b, "]")
-				if i < len(in)-1 {
-					fmt.Fprint(b, ",")
-				}
-			}
-			return b.String()
-		},
-	})
-
-	t, err = t.Parse(string(tpl))
-	if err != nil {
-		return fmt.Errorf("parse: %w", err)
-	}
-
-	f, err := os.Create("graph.html")
-	if err != nil {
-		return fmt.Errorf("create: %w", err)
-	}
-
-	err = t.Execute(f, dataset)
-	if err != nil {
-		return fmt.Errorf("execute: %w", err)
-	}
-	return nil
 }
