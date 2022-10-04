@@ -5,13 +5,13 @@
     <title>Chart</title>
   </head>
   <body>
-    <script src="//unpkg.com/force-graph"></script>
+    <script src="//unpkg.com/3d-force-graph"></script>
     <div id="graph"></div>
     <script>
       fetch('./graph.json')
         .then((res) => res.json())
         .then((data) => {
-          const graph = ForceGraph()(document.getElementById('graph'))
+          const graph = ForceGraph3D()(document.getElementById('graph'))
             .graphData(data)
             .nodeLabel('id')
             .nodeAutoColorBy('id')
