@@ -3,14 +3,17 @@
   <head>
     <meta charset="utf-8" />
     <title>Chart</title>
+    <script src="//unpkg.com/three"></script>
+    <script src="//unpkg.com/three-spritetext"></script>
+    <script src="//unpkg.com/3d-force-graph"></script>
   </head>
   <body>
-    <script src="//unpkg.com/3d-force-graph"></script>
     <div id="graph"></div>
     <script>
       fetch('./graph.json')
         .then((res) => res.json())
         .then((data) => {
+          console.log(data);
           const graph = ForceGraph3D()(document.getElementById('graph'))
             .graphData(data)
             .nodeLabel('id')
@@ -18,43 +21,22 @@
             .linkDirectionalParticles((d) => Math.log(d.value) + 1)
             .linkDirectionalParticleSpeed(
               (d) => (Math.log(d.value) + 1) * 0.005
-            ) //(d) => d.value * 0.001)
-            //.linkDirectionalArrowLength(4)
-            //.linkDirectionalParticles(2)
-            //.linkCurvature('curvature')
-            .nodeCanvasObject((node, ctx, globalScale) => {
-              const label = node.id;
-              const fontSize = 12 / globalScale;
-              ctx.font = `${fontSize}px Sans-Serif`;
-              const textWidth = ctx.measureText(label).width;
-              const bckgDimensions = [textWidth, fontSize].map(
-                (n) => n + fontSize * 0.2
-              ); // some padding
-
-              ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-              ctx.fillRect(
-                node.x - bckgDimensions[0] / 2,
-                node.y - bckgDimensions[1] / 2,
-                ...bckgDimensions
-              );
-
-              ctx.textAlign = 'center';
-              ctx.textBaseline = 'middle';
-              ctx.fillStyle = node.color;
-              ctx.fillText(label, node.x, node.y);
-
-              node.__bckgDimensions = bckgDimensions; // to re-use in nodePointerAreaPaint
+            )
+            .nodeThreeObject((node) => {
+              let scale = 1;
+              data.links.forEach((l) => {
+                if (l.target === node.id) {
+                  scale++;
+                }
+              });
+              const sprite = new SpriteText(node.id);
+              sprite.material.depthWrite = true; // make sprite background transparent
+              sprite.color = node.color;
+              sprite.textHeight = 10 * Math.log(scale / 10);
+              return sprite;
             })
-            .nodePointerAreaPaint((node, color, ctx) => {
-              ctx.fillStyle = color;
-              const bckgDimensions = node.__bckgDimensions;
-              bckgDimensions &&
-                ctx.fillRect(
-                  node.x - bckgDimensions[0] / 2,
-                  node.y - bckgDimensions[1] / 2,
-                  ...bckgDimensions
-                );
-            });
+            .d3Force('charge')
+            .strength(-1000);
         });
     </script>
   </body>
